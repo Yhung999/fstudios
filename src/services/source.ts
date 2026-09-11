@@ -15,6 +15,7 @@ const SYNTHEITQ_REPOSITORY =
   "https://raw.githubusercontent.com/kas021/Synthetiq-Modules/main/repository.json";
 
 const JIKAN_URL = "https://api.jikan.moe/v4";
+const KITSU_URL = "https://kitsu.io/api/edge";
 
 const JIKAN_GENRES: Record<string, number> = {
   Action: 1,
@@ -194,8 +195,63 @@ async function anilistRequest(
 
 async function jikanRequest(path: string) {
   const response = await fetch(`${JIKAN_URL}${path}`);
-  if (!response.ok) throw new Error(`Jikan error: ${response.status}`);
-  return response.json();
+  if (response.ok) return response.json();
+
+  const detailMatch = path.match(/^\/anime\/([^/?]+)\/full$/);
+  if (detailMatch) {
+    const kitsuDetail = await fetch(`${KITSU_URL}/anime/${detailMatch[1]}`);
+    if (kitsuDetail.ok) {
+      const entry = (await kitsuDetail.json()).data;
+      const attributes = entry?.attributes || {};
+      return {
+        data: {
+          mal_id: entry?.id,
+          title: attributes.canonicalTitle,
+          title_english: attributes.titles?.en,
+          images: { jpg: { large_image_url: attributes.posterImage?.large || attributes.posterImage?.original } },
+          synopsis: attributes.synopsis,
+          score: Number(attributes.averageRating || 0) / 10,
+          year: attributes.startDate ? Number(String(attributes.startDate).slice(0, 4)) : undefined,
+          episodes: attributes.episodeCount,
+          status: attributes.status,
+          genres: [],
+        },
+      };
+    }
+  }
+
+  const url = new URL(path, "https://api.jikan.moe");
+  const limit = url.searchParams.get("limit") || "24";
+  const page = Number(url.searchParams.get("page") || 1);
+  const query = url.searchParams.get("q");
+  const kitsuParams = new URLSearchParams({
+    "page[limit]": limit,
+    "page[offset]": String((page - 1) * Number(limit)),
+    sort: "-averageRating",
+  });
+  if (query) kitsuParams.set("filter[text]", query);
+
+  const kitsuResponse = await fetch(`${KITSU_URL}/anime?${kitsuParams}`);
+  if (!kitsuResponse.ok) throw new Error(`Anime fallback error: ${kitsuResponse.status}`);
+  const kitsu = await kitsuResponse.json();
+
+  return {
+    data: (kitsu.data || []).map((entry: any) => {
+      const attributes = entry.attributes || {};
+      return {
+        mal_id: entry.id,
+        title: attributes.canonicalTitle,
+        title_english: attributes.titles?.en,
+        images: { jpg: { large_image_url: attributes.posterImage?.large || attributes.posterImage?.original } },
+        synopsis: attributes.synopsis,
+        score: Number(attributes.averageRating || 0) / 10,
+        year: attributes.startDate ? Number(String(attributes.startDate).slice(0, 4)) : undefined,
+        episodes: attributes.episodeCount,
+        status: attributes.status,
+        genres: [],
+      };
+    }),
+  };
 }
 
 function normalizeJikan(item: any, type: MediaType = "ANIME"): Media {
@@ -215,12 +271,17 @@ function normalizeJikan(item: any, type: MediaType = "ANIME"): Media {
   };
 }
 
-async function withAnimeFallback<T>(primary: () => Promise<T>, fallback: () => Promise<T>) {
+async function withAnimeFallback<T>(primary: () => Promise<T>, fallback: () => Promise<T>, emptyValue?: T) {
   try {
     return await primary();
   } catch (error) {
     console.warn("AniList unavailable, using Jikan fallback", error);
-    return fallback();
+    try {
+      return await fallback();
+    } catch (fallbackError) {
+      console.warn("Anime fallback unavailable", fallbackError);
+      return emptyValue ?? ([] as T);
+    }
   }
 }
 
@@ -393,7 +454,7 @@ export async function getMediaDetails(
   id: number,
   type: MediaType = "ANIME"
 ) {
-  return withAnimeFallback(
+  return withAnimeFallback<Media | null>(
     async () => {
       const data = await anilistRequest(DETAIL_QUERY, { id, type });
       if (!data.Media) return null;
@@ -409,7 +470,8 @@ export async function getMediaDetails(
       if (type !== "ANIME") return null;
       const data = await jikanRequest(`/anime/${id}/full`);
       return data.data ? normalizeJikan(data.data) : null;
-    }
+    },
+    null
   );
 }
 

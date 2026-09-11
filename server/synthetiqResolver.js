@@ -5,18 +5,35 @@ import { Readable } from "node:stream";
 
 const MODULE_URLS = {
   "anikoto-v4": "https://github.com/kas021/Synthetiq-Modules/releases/download/module-anikoto-v4-v5.0.0/Anikoto-5.0.0.zip",
+  "miruro-v3": "https://github.com/kas021/Synthetiq-Modules/releases/download/module-miruro-v3-v4.1.0/Miruro-4.1.0.zip",
+  "synthetiq-anime-v1": "https://github.com/kas021/Synthetiq-Modules/releases/download/module-synthetiq-anime-v1-v1.0.2/Synthetiq-Anime-1.0.2.zip",
+  "justanime-v1": "https://github.com/kas021/Synthetiq-Modules/releases/download/module-justanime-v1-v1.0.0/JustAnime-1.0.0.zip",
+  "animekai-v2": "https://github.com/kas021/Synthetiq-Modules/releases/download/module-animekai-v2-v4.0.0/AnimeKai-4.0.0.zip",
   "animeheaven-v2-1": "https://github.com/kas021/Synthetiq-Modules/releases/download/module-animeheaven-v2-1-v4.1.0/AnimeHeaven-4.1.0.zip",
 };
 
 const MANGA_MODULE_URL = "https://github.com/kas021/Synthetiq-Modules/releases/download/module-weebcentral-v2-v4.1.10/WeebCentral-4.1.10.zip";
 
 const moduleCache = new Map();
+const streamResolutionCache = new Map();
+const RESOLVER_VERSION = "quality-v2";
 let mangaRuntime;
 
 const DEFAULT_STREAM_REFERER = "https://megaplay.buzz/";
 
 function proxyUrl(url, referer = DEFAULT_STREAM_REFERER) {
   return `/api/media?url=${encodeURIComponent(url)}&referer=${encodeURIComponent(referer)}`;
+}
+
+function refererForStream(url) {
+  try {
+    const host = new URL(url).hostname;
+    if (host.includes("animegg")) return "https://www.animegg.org/";
+    if (host.includes("premilkyway") || host.includes("acek-cdn") || host.includes("dramiyos-cdn")) return "https://megaplay.buzz/";
+    return `${new URL(url).origin}/`;
+  } catch {
+    return DEFAULT_STREAM_REFERER;
+  }
 }
 
 async function isPlayableStream(url, referer = DEFAULT_STREAM_REFERER) {
@@ -75,7 +92,7 @@ export async function proxyMedia(request, response) {
   if (upstream.status === 206) response.statusCode = 206;
   response.setHeader("Access-Control-Allow-Origin", "*");
   response.setHeader("Content-Type", contentType);
-  for (const header of ["content-length", "content-range", "accept-ranges", "etag", "last-modified"]) {
+  for (const header of ["content-range", "accept-ranges", "etag", "last-modified"]) {
     const value = upstream.headers.get(header);
     if (value) response.setHeader(header, value);
   }
@@ -93,6 +110,7 @@ export async function proxyMedia(request, response) {
         return proxyUrl(new URL(value, base).href, referer);
       })
       .join("\n");
+    response.setHeader("Content-Length", Buffer.byteLength(rewritten, "utf8"));
     response.end(rewritten);
     return;
   }
@@ -220,6 +238,18 @@ function pickTitleResult(results, title) {
   })[0];
 }
 
+function qualityRank(label = "") {
+  const value = String(label).toLowerCase();
+  const resolution = value.match(/(2160|1440|1080|720|576|480|360)p?/);
+  if (resolution) return Number(resolution[1]);
+  if (value.includes("uhd") || value.includes("4k")) return 2160;
+  if (value.includes("hq")) return 1080;
+  if (value.includes("hd")) return 720;
+  if (value.includes("sd")) return 480;
+  if (value.includes("auto")) return 720;
+  return 0;
+}
+
 async function resolveWithModule({ sourceId, title, episode, language = "sub" }) {
   const runtime = await loadModule(sourceId);
   const results = await runtime.searchResults(title, 0);
@@ -255,13 +285,18 @@ async function resolveWithModule({ sourceId, title, episode, language = "sub" })
   const streams = validEntries
     .map((item, index) => ({
       id: `${language}-${index}-${item.url}`,
-      url: proxyUrl(item.url),
+      url: proxyUrl(item.url, refererForStream(item.url)),
       type: String(item.url).includes(".m3u8") ? "hls" : "mp4",
       quality: item.quality && item.quality !== "Auto"
         ? item.quality
         : `Auto - ${index === 0 ? "Primary" : `Backup ${index}`}`,
       language: item.language || (language === "dub" ? "Dub" : "Sub"),
-    }));
+    }))
+    .sort((left, right) => qualityRank(right.quality) - qualityRank(left.quality));
+
+  streams.forEach((stream, index) => {
+    stream.id = `${language}-${index}-${stream.url}`;
+  });
 
   if (!streams.length) {
     throw new Error(`No playable stream was returned for ${title} episode ${episode}.`);
@@ -270,21 +305,49 @@ async function resolveWithModule({ sourceId, title, episode, language = "sub" })
   return streams;
 }
 
-export async function resolveSynthetiqStream({ sourceId, title, episode, language = "sub" }) {
+async function resolveSynthetiqStreamUncached({ sourceId, title, episode, language = "sub" }) {
   const candidates = sourceId === "anikoto-v4"
-    ? [sourceId, "animeheaven-v2-1"]
+    ? [sourceId, "miruro-v3", "synthetiq-anime-v1", "justanime-v1", "animekai-v2", "animeheaven-v2-1"]
     : [sourceId];
   const failures = [];
+  let bestFallback = null;
 
   for (const candidate of candidates) {
     try {
-      return await resolveWithModule({ sourceId: candidate, title, episode, language });
+      const streams = await resolveWithModule({ sourceId: candidate, title, episode, language });
+      const bestQuality = Math.max(...streams.map((stream) => qualityRank(stream.quality)));
+      const currentQuality = bestFallback ? Math.max(...bestFallback.map((stream) => qualityRank(stream.quality))) : -1;
+      if (!bestFallback || bestQuality > currentQuality || (bestQuality === currentQuality && streams.length > bestFallback.length)) {
+        bestFallback = streams;
+      }
     } catch (error) {
       failures.push(error instanceof Error ? error.message : String(error));
     }
   }
 
+  if (bestFallback) return bestFallback;
+
   throw new Error(failures.join(" "));
+}
+
+export async function resolveSynthetiqStream({ sourceId, title, episode, language = "sub" }) {
+  const key = JSON.stringify({ version: RESOLVER_VERSION, sourceId, title, episode, language });
+  const cached = streamResolutionCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  if (cached) streamResolutionCache.delete(key);
+
+  const request = resolveSynthetiqStreamUncached({ sourceId, title, episode, language });
+  streamResolutionCache.set(key, {
+    promise: request,
+    expiresAt: Date.now() + 5 * 60 * 1000,
+  });
+
+  try {
+    return await request;
+  } catch (error) {
+    streamResolutionCache.delete(key);
+    throw error;
+  }
 }
 
 export function synthetiqResolverPlugin() {

@@ -24,6 +24,19 @@ export default function Watch() {
   const positionRef = useRef(0);
   const savedPositionRef = useRef(0);
   const lastTapRef = useRef({ time: 0, side: "" });
+  const activeStreamIndex = streams.findIndex((stream) => stream.id === quality);
+
+  const handlePlaybackError = () => {
+    const nextStream = streams[activeStreamIndex + 1];
+    if (nextStream) {
+      rememberPosition();
+      setStreamError(null);
+      setQuality(nextStream.id || "");
+      return;
+    }
+
+    setStreamError("This stream could not be played by the browser. Try another quality.");
+  };
   const episode = Number(params.get("episode")) || 1;
   const playbackKey = `${id}:${episode}`;
 
@@ -142,16 +155,25 @@ export default function Watch() {
     if (stream.type === "hls" && Hls.isSupported()) {
       const hls = new Hls({ enableWorker: true });
       const activeIndex = streams.findIndex((item) => item.url === stream.url);
+      let recoveryAttempts = 0;
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal && activeIndex >= 0 && streams[activeIndex + 1]) {
+        if (!data.fatal) return;
+
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && recoveryAttempts < 2) {
+          recoveryAttempts += 1;
+          hls.startLoad();
+          return;
+        }
+
+        if (activeIndex >= 0 && streams[activeIndex + 1]) {
           rememberPosition();
           setQuality(streams[activeIndex + 1].id || "");
-        } else if (data.fatal) {
+        } else {
           setStreamError("The provider stream failed. Try another quality or source.");
         }
       });
-      hls.loadSource(stream.url);
       hls.attachMedia(video);
+      hls.loadSource(stream.url);
 
       return () => {
         rememberPosition();
@@ -220,7 +242,7 @@ export default function Watch() {
             }}
             onPause={rememberPosition}
             onEnded={rememberPosition}
-            onError={() => setStreamError("This stream could not be played by the browser. Try another quality.")}
+            onError={handlePlaybackError}
           />
         )}
         {seekNotice && <div className="seek-notice">{seekNotice}</div>}

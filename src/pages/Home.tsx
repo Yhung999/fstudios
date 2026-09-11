@@ -20,14 +20,19 @@ export default function Home() {
   useEffect(() => {
     let mounted = true;
 
-    Promise.all([
+    Promise.allSettled([
       getTrendingAnime(),
       getPopularAnime(),
       getLatestAnime(),
       getPopularManga(),
     ])
-      .then(([trendingItems, popularItems, latestItems, mangaItems]) => {
+      .then(([trendingResult, popularResult, latestResult, mangaResult]) => {
         if (!mounted) return;
+
+        const trendingItems = trendingResult.status === "fulfilled" ? trendingResult.value : [];
+        const popularItems = popularResult.status === "fulfilled" ? popularResult.value : [];
+        const latestItems = latestResult.status === "fulfilled" ? latestResult.value : [];
+        const mangaItems = mangaResult.status === "fulfilled" ? mangaResult.value : [];
 
         setFeatured(trendingItems[0] ?? popularItems[0] ?? latestItems[0] ?? null);
         setContinueWatching(latestItems.slice(0, 10));
