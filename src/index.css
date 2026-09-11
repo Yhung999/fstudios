@@ -1355,24 +1355,26 @@ button {
 
     position: fixed;
 
-    left: 10px;
-    right: 10px;
-    bottom: 10px;
+    left: 0;
+    right: 0;
+    bottom: 0;
 
-    height: 64px;
+    min-height: 64px;
+    height: calc(64px + env(safe-area-inset-bottom));
 
     z-index: 50;
 
     align-items: center;
     justify-content: space-around;
 
-    border-radius: 18px;
+    border-radius: 0;
 
     background: rgba(20,20,27,.94);
 
     backdrop-filter: blur(20px);
 
-    border: 1px solid rgba(255,255,255,.08);
+    border-top: 1px solid rgba(255,255,255,.08);
+    padding: 0 8px env(safe-area-inset-bottom);
   }
 
   .bottom-nav a {

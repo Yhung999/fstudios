@@ -14,6 +14,20 @@ const ANILIST_URL =
 const SYNTHEITQ_REPOSITORY =
   "https://raw.githubusercontent.com/kas021/Synthetiq-Modules/main/repository.json";
 
+const JIKAN_URL = "https://api.jikan.moe/v4";
+
+const JIKAN_GENRES: Record<string, number> = {
+  Action: 1,
+  Adventure: 2,
+  Comedy: 4,
+  Drama: 8,
+  Fantasy: 10,
+  Horror: 14,
+  Romance: 22,
+  "Sci-Fi": 24,
+  Sports: 30,
+};
+
 const ANILIST_QUERY = `
 query (
   $page: Int,
@@ -178,6 +192,38 @@ async function anilistRequest(
   return json.data;
 }
 
+async function jikanRequest(path: string) {
+  const response = await fetch(`${JIKAN_URL}${path}`);
+  if (!response.ok) throw new Error(`Jikan error: ${response.status}`);
+  return response.json();
+}
+
+function normalizeJikan(item: any, type: MediaType = "ANIME"): Media {
+  return {
+    id: String(item.mal_id),
+    title: item.title_english || item.title || "Unknown",
+    image: item.images?.jpg?.large_image_url || item.images?.jpg?.image_url || "",
+    banner: item.images?.jpg?.large_image_url || "",
+    description: item.synopsis || "No description available.",
+    score: item.score || 0,
+    year: item.year || item.aired?.prop?.from?.year,
+    genres: (item.genres || []).map((genre: any) => genre.name),
+    episodes: item.episodes,
+    chapters: item.chapters,
+    status: item.status,
+    type,
+  };
+}
+
+async function withAnimeFallback<T>(primary: () => Promise<T>, fallback: () => Promise<T>) {
+  try {
+    return await primary();
+  } catch (error) {
+    console.warn("AniList unavailable, using Jikan fallback", error);
+    return fallback();
+  }
+}
+
 function normalizeMedia(
   item: any
 ): Media {
@@ -235,111 +281,57 @@ function normalizeMedia(
    ANIME
 ========================= */
 
-export async function getTrendingAnime() {
-  const data = await anilistRequest(
-    ANILIST_QUERY,
-    {
-      page: 1,
-      perPage: 20,
-      type: "ANIME",
-      sort: ["TRENDING_DESC"],
-    }
+export async function getTrendingAnime(): Promise<Media[]> {
+  return withAnimeFallback<Media[]>(
+    async () => (await anilistRequest(ANILIST_QUERY, { page: 1, perPage: 20, type: "ANIME", sort: ["TRENDING_DESC"] })).Page.media.map(normalizeMedia) as Media[],
+    async () => (await jikanRequest("/anime?order_by=popularity&sort=desc&limit=24")).data.map(normalizeJikan)
   );
-
-  return data.Page.media.map(
-    normalizeMedia
-  ) as Media[];
 }
 
-export async function getPopularAnime(page = 1, genre?: string) {
-  const data = await anilistRequest(
-    ANILIST_QUERY,
-    {
-      page,
-      perPage: 24,
-      type: "ANIME",
-      genre: genre || undefined,
-      sort: ["POPULARITY_DESC"],
-    }
-  );
-
-  return data.Page.media.map(
-    normalizeMedia
-  ) as Media[];
+export async function getPopularAnime(page = 1, genre?: string): Promise<Media[]> {
+  return getAnimeCatalog(page, genre);
 }
 
-export async function getAnimeCatalog(page = 1, genre?: string) {
-  const data = await anilistRequest(
-    ANILIST_QUERY,
-    {
-      page,
-      perPage: 24,
-      type: "ANIME",
-      genre: genre || undefined,
-      sort: ["POPULARITY_DESC"],
+export async function getAnimeCatalog(page = 1, genre?: string): Promise<Media[]> {
+  return withAnimeFallback<Media[]>(
+    async () => (await anilistRequest(ANILIST_QUERY, { page, perPage: 24, type: "ANIME", genre: genre || undefined, sort: ["POPULARITY_DESC"] })).Page.media.map(normalizeMedia) as Media[],
+    async () => {
+      const genreParam = genre && JIKAN_GENRES[genre] ? `&genres=${JIKAN_GENRES[genre]}` : "";
+      return (await jikanRequest(`/anime?order_by=members&sort=desc&page=${page}&limit=24${genreParam}`)).data.map(normalizeJikan);
     }
   );
-
-  return data.Page.media.map(normalizeMedia) as Media[];
 }
 
-export async function getLatestAnime() {
-  const data = await anilistRequest(
-    ANILIST_QUERY,
-    {
-      page: 1,
-      perPage: 20,
-      type: "ANIME",
-      sort: ["START_DATE_DESC"],
-    }
+export async function getLatestAnime(): Promise<Media[]> {
+  return withAnimeFallback<Media[]>(
+    async () => (await anilistRequest(ANILIST_QUERY, { page: 1, perPage: 20, type: "ANIME", sort: ["START_DATE_DESC"] })).Page.media.map(normalizeMedia) as Media[],
+    async () => (await jikanRequest("/anime?order_by=aired.from&sort=desc&limit=24")).data.map(normalizeJikan)
   );
-
-  return data.Page.media.map(
-    normalizeMedia
-  ) as Media[];
 }
 
-export async function searchAnime(
-  search: string
-) {
+export async function searchAnime(search: string): Promise<Media[]> {
   if (!search.trim()) {
     return [];
   }
 
-  const data = await anilistRequest(
-    ANILIST_QUERY,
-    {
-      page: 1,
-      perPage: 30,
-      search,
-      type: "ANIME",
-      sort: ["SEARCH_MATCH"],
-    }
+  return withAnimeFallback<Media[]>(
+    async () => (await anilistRequest(ANILIST_QUERY, { page: 1, perPage: 30, search, type: "ANIME", sort: ["SEARCH_MATCH"] })).Page.media.map(normalizeMedia) as Media[],
+    async () => (await jikanRequest(`/anime?q=${encodeURIComponent(search)}&limit=30`)).data.map(normalizeJikan)
   );
-
-  return data.Page.media.map(
-    normalizeMedia
-  ) as Media[];
 }
 
 /* =========================
    MANGA
 ========================= */
 
-export async function getPopularManga() {
-  const data = await anilistRequest(
-    ANILIST_QUERY,
-    {
-      page: 1,
-      perPage: 24,
-      type: "MANGA",
-      sort: ["POPULARITY_DESC"],
-    }
+export async function getPopularManga(): Promise<Media[]> {
+  return withAnimeFallback<Media[]>(
+    async () => {
+      const data = await anilistRequest(ANILIST_QUERY, { page: 1, perPage: 24, type: "MANGA", sort: ["POPULARITY_DESC"] });
+      return data.Page.media.map(normalizeMedia) as Media[];
+    },
+    async () => (await jikanRequest("/manga?order_by=members&sort=desc&limit=24")).data.map((item: any) => normalizeJikan(item, "MANGA"))
   );
-
-  return data.Page.media.map(
-    normalizeMedia
-  ) as Media[];
 }
 
 export async function searchManga(
@@ -401,28 +393,24 @@ export async function getMediaDetails(
   id: number,
   type: MediaType = "ANIME"
 ) {
-  const data = await anilistRequest(
-    DETAIL_QUERY,
-    {
-      id,
-      type,
+  return withAnimeFallback(
+    async () => {
+      const data = await anilistRequest(DETAIL_QUERY, { id, type });
+      if (!data.Media) return null;
+
+      const media = normalizeMedia(data.Media) as Media;
+      media.seasons = (data.Media.relations?.edges || [])
+        .filter((edge: any) => ["PREQUEL", "SEQUEL"].includes(edge.relationType) && edge.node?.type === "ANIME")
+        .map((edge: any) => normalizeMedia(edge.node) as Media)
+        .sort((left: Media, right: Media) => (left.year ?? 0) - (right.year ?? 0));
+      return media;
+    },
+    async () => {
+      if (type !== "ANIME") return null;
+      const data = await jikanRequest(`/anime/${id}/full`);
+      return data.data ? normalizeJikan(data.data) : null;
     }
   );
-
-  if (!data.Media) {
-    return null;
-  }
-
-  const media = normalizeMedia(data.Media) as Media;
-  media.seasons = (data.Media.relations?.edges || [])
-    .filter((edge: any) =>
-      ["PREQUEL", "SEQUEL"].includes(edge.relationType) &&
-      edge.node?.type === "ANIME"
-    )
-    .map((edge: any) => normalizeMedia(edge.node) as Media)
-    .sort((left: Media, right: Media) => (left.year ?? 0) - (right.year ?? 0));
-
-  return media;
 }
 
 /* =========================

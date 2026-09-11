@@ -1,4 +1,4 @@
-import { Home, Search, Heart, User } from "lucide-react";
+import { Home, Search, Heart, User, BookOpen } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 export default function BottomNav() {
@@ -17,6 +17,11 @@ export default function BottomNav() {
       <NavLink to="/library">
         <Heart size={21} />
         <span>Library</span>
+      </NavLink>
+
+      <NavLink to="/manga">
+        <BookOpen size={21} />
+        <span>Manga</span>
       </NavLink>
 
       <NavLink to="/settings">

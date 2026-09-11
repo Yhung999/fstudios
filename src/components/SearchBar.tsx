@@ -11,6 +11,18 @@ export default function SearchBar() {
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const blurTimer = useRef<number | undefined>(undefined);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const closeOnOutsideTap = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsideTap);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideTap);
+  }, []);
 
   useEffect(() => {
     const value = query.trim();
@@ -53,7 +65,7 @@ export default function SearchBar() {
   };
 
   return (
-    <div className="search-container">
+    <div className="search-container" ref={containerRef}>
       <div className="search-bar">
       <Search size={20} />
 
