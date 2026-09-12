@@ -3,6 +3,20 @@ import AdmZip from "adm-zip";
 import vm from "node:vm";
 import { Readable } from "node:stream";
 
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async (url, options = {}) => {
+  if (url.includes("weebcentral")) {
+    options.headers = {
+      ...options.headers,
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Referer": "https://weebcentral.com",
+    };
+  }
+  return originalFetch(url, options);
+};
+
 const MODULE_URLS = {
   "anikoto-v4": "https://github.com/kas021/Synthetiq-Modules/releases/download/module-anikoto-v4-v5.0.0/Anikoto-5.0.0.zip",
   "miruro-v3": "https://github.com/kas021/Synthetiq-Modules/releases/download/module-miruro-v3-v4.1.0/Miruro-4.1.0.zip",
