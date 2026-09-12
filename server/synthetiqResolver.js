@@ -305,29 +305,57 @@ async function resolveWithModule({ sourceId, title, episode, language = "sub" })
   return streams;
 }
 
-async function resolveSynthetiqStreamUncached({ sourceId, title, episode, language = "sub" }) {
-  const candidates = sourceId === "anikoto-v4"
-    ? [sourceId, "miruro-v3", "synthetiq-anime-v1", "justanime-v1", "animekai-v2", "animeheaven-v2-1"]
-    : [sourceId];
-  const failures = [];
-  let bestFallback = null;
+function getSourceCandidates(sourceId) {
+  const allSources = Object.keys(MODULE_URLS);
+  if (!sourceId || sourceId === "all" || sourceId === "auto") return allSources;
 
-  for (const candidate of candidates) {
-    try {
-      const streams = await resolveWithModule({ sourceId: candidate, title, episode, language });
-      const bestQuality = Math.max(...streams.map((stream) => qualityRank(stream.quality)));
-      const currentQuality = bestFallback ? Math.max(...bestFallback.map((stream) => qualityRank(stream.quality))) : -1;
-      if (!bestFallback || bestQuality > currentQuality || (bestQuality === currentQuality && streams.length > bestFallback.length)) {
-        bestFallback = streams;
-      }
-    } catch (error) {
-      failures.push(error instanceof Error ? error.message : String(error));
+  const selectedIndex = allSources.indexOf(sourceId);
+  const ordered = selectedIndex >= 0 ? [sourceId, ...allSources.filter((item) => item !== sourceId)] : allSources;
+  return [...new Set(ordered)];
+}
+
+async function resolveSynthetiqStreamUncached({ sourceId, title, episode, language = "sub" }) {
+  const orderedSources = getSourceCandidates(sourceId);
+  const failures = [];
+  const timeoutMs = 12000;
+
+  const results = await Promise.allSettled(
+    orderedSources.map(async (candidate) => {
+      const timer = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error(`${candidate} timed out while resolving the stream.`)), timeoutMs);
+      });
+
+      const streams = await Promise.race([
+        resolveWithModule({ sourceId: candidate, title, episode, language }),
+        timer,
+      ]);
+
+      return { candidate, streams };
+    })
+  );
+
+  const successfulStreams = results
+    .filter((result) => result.status === "fulfilled")
+    .flatMap((result) => result.value.streams);
+
+  if (successfulStreams.length) {
+    const uniqueStreams = [];
+    const seenUrls = new Set();
+    for (const stream of successfulStreams.sort((left, right) => qualityRank(right.quality) - qualityRank(left.quality))) {
+      if (seenUrls.has(stream.url)) continue;
+      seenUrls.add(stream.url);
+      uniqueStreams.push(stream);
+    }
+    return uniqueStreams;
+  }
+
+  for (const result of results) {
+    if (result.status === "rejected") {
+      failures.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
     }
   }
 
-  if (bestFallback) return bestFallback;
-
-  throw new Error(failures.join(" "));
+  throw new Error(failures.join(" ") || "No sources could resolve this stream.");
 }
 
 export async function resolveSynthetiqStream({ sourceId, title, episode, language = "sub" }) {

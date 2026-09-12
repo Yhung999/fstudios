@@ -171,15 +171,13 @@ button {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-
   gap: 14px;
 
   padding: 0 35px;
 
   position: sticky;
   top: 0;
-
-  z-index: 15;
+  z-index: 20;
 
   backdrop-filter: blur(18px);
   background: rgba(8,9,13,.72);
@@ -190,7 +188,7 @@ button {
 }
 
 .search-bar {
-  width: min(430px, 50vw);
+  width: min(430px, 100%);
 
   display: flex;
   align-items: center;
@@ -208,8 +206,10 @@ button {
 }
 
 .search-container {
-  width: min(430px, 50vw);
+  width: min(430px, 48vw);
+  min-width: 220px;
   position: relative;
+  margin-left: auto;
 }
 
 .search-container .search-bar {
@@ -1511,10 +1511,23 @@ button {
   border-radius: 7px;
 }
 
-.source-note {
+.source-status {
   margin-left: auto;
-  color: #73757e;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #c4c7ce;
   font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.source-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.7);
 }
 
 .next-episode-button {
@@ -1603,13 +1616,16 @@ button {
 
 .manga-reader {
   min-height: calc(100vh - 76px);
-  margin: -35px;
-  padding-bottom: 90px;
+  margin: 0;
+  padding: 0 0 90px;
   background: #050506;
 }
 
 .reader-toolbar,
 .reader-chapter-bar {
+  position: sticky;
+  top: 76px;
+  z-index: 8;
   display: flex;
   align-items: center;
   gap: 14px;

@@ -25,13 +25,14 @@ export default function Watch() {
   const savedPositionRef = useRef(0);
   const lastTapRef = useRef({ time: 0, side: "" });
   const activeStreamIndex = streams.findIndex((stream) => stream.id === quality);
+  const activeStream = streams.find((stream) => stream.id === quality) || streams[0];
 
   const handlePlaybackError = () => {
-    const nextStream = streams[activeStreamIndex + 1];
-    if (nextStream) {
+    const fallbackStream = streams[activeStreamIndex + 1] || streams.find((stream) => stream.id !== quality) || streams[0];
+    if (fallbackStream) {
       rememberPosition();
       setStreamError(null);
-      setQuality(nextStream.id || "");
+      setQuality(fallbackStream.id || "");
       return;
     }
 
@@ -120,7 +121,12 @@ export default function Watch() {
       .then((items) => {
         if (mounted) {
           setStreams(items);
-          setQuality(items[0]?.id || "");
+          setQuality((currentQuality) => {
+            if (items.some((stream) => stream.id === currentQuality)) {
+              return currentQuality;
+            }
+            return items[0]?.id || "";
+          });
         }
       })
       .catch((error) => {
@@ -140,7 +146,7 @@ export default function Watch() {
 
   useEffect(() => {
     const video = videoRef.current;
-    const stream = streams.find((item) => item.id === quality) || streams[0];
+    const stream = activeStream || streams[0];
     if (!video || !stream) return;
 
     video.currentTime = positionRef.current || savedPositionRef.current;
@@ -201,6 +207,14 @@ export default function Watch() {
     label: stream.quality || "Auto",
     language: stream.language || "",
   }));
+  const activeQualityLabel = activeStream?.quality || "Auto";
+  const isAutoSource = selectedSourceId === "all" || selectedSourceId === "auto";
+  const sourceStatus = isAutoSource
+    ? `Auto fallback • ${streams.length} streams`
+    : `${selectedSourceName} • ${activeQualityLabel}`;
+  const loadingMessage = isAutoSource
+    ? "Trying all available sources for this episode…"
+    : `Finding a stream from ${selectedSourceName}…`;
   const totalEpisodes = anime?.episodes ?? 0;
   const hasNextEpisode = totalEpisodes > 0 && episode < totalEpisodes;
 
@@ -219,7 +233,7 @@ export default function Watch() {
     <div className="watch-page">
       <div className="video-player" onTouchEnd={handleVideoTouch}>
         {streamLoading ? (
-          <div className="video-status">Finding a stream from {selectedSourceName}…</div>
+          <div className="video-status">{loadingMessage}</div>
         ) : streamError ? (
           <div className="video-status video-error">
             <strong>Playback unavailable</strong>
@@ -261,7 +275,10 @@ export default function Watch() {
           </select>
         </label>
 
-        <span className="source-note">Source: {selectedSourceName}</span>
+        <div className="source-status" aria-live="polite">
+          <span className="source-dot" />
+          {sourceStatus}
+        </div>
 
         <button
           className="next-episode-button"

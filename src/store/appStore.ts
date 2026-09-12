@@ -88,9 +88,9 @@ export const useStore = create<FStudiosState>()(
 
       playbackPositions: {},
 
-      selectedSourceId: "anikoto-v4",
+      selectedSourceId: "all",
 
-      selectedSourceName: "Anikoto",
+      selectedSourceName: "Auto source fallback",
 
       mangaPreferences: {},
 

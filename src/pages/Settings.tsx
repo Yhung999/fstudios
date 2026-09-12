@@ -108,6 +108,30 @@ export default function Settings() {
           </div>
         ) : (
           <div className="anime-grid">
+            <button
+              className="anime-card"
+              onClick={() => setSelectedSource("all", "Auto source fallback")}
+              style={{
+                border: selectedSourceId === "all" ? "1px solid #8b5cf6" : "1px solid rgba(255,255,255,0.08)",
+                background: selectedSourceId === "all" ? "rgba(124,58,237,0.12)" : undefined,
+              }}
+            >
+              <div className="poster" style={{ display: "grid", placeItems: "center" }}>
+                <div style={{ width: "100%", height: "100%", display: "grid", placeItems: "center", background: "linear-gradient(135deg, rgba(34,197,94,0.25), rgba(168,85,247,0.25))", fontWeight: 800 }}>
+                  A
+                </div>
+              </div>
+              <div className="card-info">
+                <h3>Auto source fallback</h3>
+                <div className="meta">
+                  <span>All sources</span>
+                  <span>•</span>
+                  <span>Automatic retry</span>
+                </div>
+                <p>Use every connected source until one works.</p>
+              </div>
+            </button>
+
             {sources.map((source) => (
               <button
                 key={source.moduleId}

@@ -50,9 +50,9 @@ export default function MangaReader() {
 
   const preference: MangaPreference = { ...defaults, ...storedPreference };
   const currentChapterIndex = chapters.findIndex((chapter) => (chapter.id || chapter.href) === chapterId);
-  const currentChapter = chapters[currentChapterIndex] || chapters[0];
-  const canPrevious = page > 0 || currentChapterIndex < chapters.length - 1;
-  const canNext = page < pages.length - 1 || currentChapterIndex > 0;
+  const currentChapter = currentChapterIndex >= 0 ? chapters[currentChapterIndex] : chapters[0];
+  const canPrevious = page > 0 || currentChapterIndex > 0;
+  const canNext = page < pages.length - 1 || currentChapterIndex < chapters.length - 1;
 
   useEffect(() => {
     if (!mangaId) return;
@@ -92,7 +92,8 @@ export default function MangaReader() {
       .then((items) => {
         if (!active) return;
         setPages(items);
-        setPage(mangaProgress[chapterId] || 0);
+        const savedPage = Number.isFinite(mangaProgress[chapterId]) ? mangaProgress[chapterId] : 0;
+        setPage(Math.min(savedPage, Math.max(items.length - 1, 0)));
       })
       .catch((error) => console.error("Failed to load manga pages", error))
       .finally(() => {
@@ -101,11 +102,29 @@ export default function MangaReader() {
     return () => {
       active = false;
     };
-  }, [chapterId]);
+  }, [chapterId, mangaProgress]);
 
   useEffect(() => {
     if (mangaId) addMangaHistory(mangaId, privateMode);
   }, [mangaId, privateMode]);
+
+  useEffect(() => {
+    if (preference.direction === "vertical" || !pages.length) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") {
+        event.preventDefault();
+        handlePageStep(1);
+      }
+      if (event.key === "ArrowLeft" || event.key === "PageUp") {
+        event.preventDefault();
+        handlePageStep(-1);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [page, pages.length, preference.direction]);
 
   const updatePreference = (patch: Partial<MangaPreference>) => {
     if (mangaId) setMangaPreference(mangaId, patch);
@@ -117,13 +136,24 @@ export default function MangaReader() {
     if (chapterId) setMangaProgress(chapterId, bounded);
   };
 
+  const handlePageStep = (step: number) => {
+    if (preference.direction === "vertical" || !pages.length) return;
+    savePage(page + step);
+  };
+
+  const openChapter = (nextId: string) => {
+    if (!nextId) return;
+    setChapterId(nextId);
+    setPage(0);
+    navigate(`/manga/${mangaId}/read?chapter=${encodeURIComponent(nextId)}`);
+  };
+
   const changeChapter = (offset: number) => {
     const nextIndex = currentChapterIndex + offset;
     const nextChapter = chapters[nextIndex];
     if (nextChapter) {
       const nextId = nextChapter.id || nextChapter.href || "";
-      setChapterId(nextId);
-      navigate(`/manga/${mangaId}/read?chapter=${encodeURIComponent(nextId)}`);
+      openChapter(nextId);
     }
   };
 
@@ -131,6 +161,7 @@ export default function MangaReader() {
     ? pages
     : pages.slice(page, page + (preference.spread ? 2 : 1));
   const filter = `brightness(${preference.brightness}%) contrast(${preference.contrast}%)${preference.grayscale ? " grayscale(1)" : ""}`;
+  const sourceLabel = title || "Manga Reader";
 
   if (loading) return <div className="empty"><h3>Loading reader…</h3></div>;
 
@@ -165,14 +196,25 @@ export default function MangaReader() {
       )}
 
       <div className="reader-chapter-bar">
-        <button onClick={() => changeChapter(1)} disabled={currentChapterIndex >= chapters.length - 1}>Previous chapter</button>
-        <select value={chapterId} onChange={(event) => setChapterId(event.target.value)}>
+        <button onClick={() => changeChapter(-1)} disabled={currentChapterIndex <= 0}>Previous chapter</button>
+        <select value={chapterId} onChange={(event) => openChapter(event.target.value)}>
           {chapters.map((chapter) => <option key={chapter.id || chapter.href} value={chapter.id || chapter.href}>{chapter.title}</option>)}
         </select>
-        <button onClick={() => changeChapter(-1)} disabled={currentChapterIndex <= 0}>Next chapter</button>
+        <button onClick={() => changeChapter(1)} disabled={currentChapterIndex >= chapters.length - 1}>Next chapter</button>
+        <span className="reader-source-label">{sourceLabel}</span>
       </div>
 
-      <main className={`reader-canvas reader-fit-${preference.fit}${preference.trim ? " reader-trim" : ""}`} style={{ filter }}>
+      <main
+        className={`reader-canvas reader-fit-${preference.fit}${preference.trim ? " reader-trim" : ""}`}
+        style={{ filter }}
+        tabIndex={0}
+        onWheel={(event) => {
+          if (preference.direction === "vertical" || !pages.length) return;
+          if (Math.abs(event.deltaY) < 12) return;
+          event.preventDefault();
+          handlePageStep(event.deltaY > 0 ? 1 : -1);
+        }}
+      >
         {pageLoading ? <div className="empty"><h3>Loading pages…</h3></div> : visiblePages.map((image, index) => (
           <img key={`${image}-${index}`} src={image} alt={`Page ${page + index + 1}`} loading={index < 3 ? "eager" : "lazy"} />
         ))}
